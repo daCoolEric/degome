@@ -160,11 +160,19 @@ def _generate_guide(jid: str) -> None:
     plain_path = RESULTS / f"{jid}_plain.txt"
     try:
         cfg = _load_config()
-        key = cfg.get("anthropic_api_key", "")
-        if not key:
-            raise RuntimeError("No API key configured. Add one in Settings, or use Copy prompt.")
         transcript = plain_path.read_text(encoding="utf-8")
-        md = guide_mod.generate(key, transcript, cfg.get("guide_model", guide_mod.DEFAULT_MODEL))
+        backend = cfg.get("guide_backend", "anthropic")
+        if backend == "ollama":
+            md = guide_mod.generate_ollama(
+                transcript, cfg.get("ollama_model", guide_mod.DEFAULT_OLLAMA_MODEL))
+        else:
+            key = cfg.get("anthropic_api_key", "")
+            if not key:
+                raise RuntimeError(
+                    "No API key configured. Add one in Settings, switch the guide "
+                    "backend to Ollama (offline), or use Copy prompt.")
+            md = guide_mod.generate(key, transcript,
+                                    cfg.get("guide_model", guide_mod.DEFAULT_MODEL))
         (RESULTS / f"{jid}_guide.md").write_text(md, encoding="utf-8")
         _update(jid, guide_status="done", guide_error=None)
     except Exception as exc:  # noqa: BLE001
@@ -287,6 +295,8 @@ def get_settings():
         "has_api_key": bool(key),
         "key_hint": (key[:10] + "\u2026" + key[-4:]) if len(key) > 18 else ("set" if key else ""),
         "guide_model": cfg.get("guide_model", guide_mod.DEFAULT_MODEL),
+        "guide_backend": cfg.get("guide_backend", "anthropic"),
+        "ollama_model": cfg.get("ollama_model", guide_mod.DEFAULT_OLLAMA_MODEL),
     }
 
 
@@ -297,6 +307,10 @@ async def set_settings(payload: dict):
         cfg["anthropic_api_key"] = (payload["anthropic_api_key"] or "").strip()
     if payload.get("guide_model"):
         cfg["guide_model"] = payload["guide_model"].strip()
+    if payload.get("guide_backend") in ("anthropic", "ollama"):
+        cfg["guide_backend"] = payload["guide_backend"]
+    if payload.get("ollama_model"):
+        cfg["ollama_model"] = payload["ollama_model"].strip()
     _save_config(cfg)
     return {"ok": True, "has_api_key": bool(cfg.get("anthropic_api_key"))}
 
@@ -311,11 +325,12 @@ def start_guide(jid: str):
         raise HTTPException(409, "Transcription isn't finished yet.")
     if job.get("guide_status") == "generating":
         raise HTTPException(409, "A guide is already being generated.")
-    if not _load_config().get("anthropic_api_key"):
+    cfg = _load_config()
+    if cfg.get("guide_backend", "anthropic") == "anthropic" and not cfg.get("anthropic_api_key"):
         raise HTTPException(
             400,
-            "No API key configured. Add one in Settings — or use 'Copy prompt' "
-            "and paste it into Claude.ai for a free guide.",
+            "No API key configured. Add one in Settings, switch the guide backend "
+            "to Ollama (offline), or use 'Copy prompt' with Claude.ai.",
         )
     _update(jid, guide_status="generating", guide_error=None)
     threading.Thread(target=_generate_guide, args=(jid,), daemon=True).start()

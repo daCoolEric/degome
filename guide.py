@@ -14,6 +14,8 @@ import urllib.request
 
 API_URL = "https://api.anthropic.com/v1/messages"
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+OLLAMA_URL = "http://localhost:11434/api/chat"
+DEFAULT_OLLAMA_MODEL = "llama3.1:8b"
 
 PROMPT_TEMPLATE = """You are preparing exam-focused study notes for a university lecture.
 
@@ -89,4 +91,48 @@ def generate(api_key: str, transcript: str, model: str = DEFAULT_MODEL) -> str:
     guide = "\n".join(parts).strip()
     if not guide:
         raise RuntimeError("The API returned an empty response.")
+    return guide
+
+
+def generate_ollama(transcript: str, model: str = DEFAULT_OLLAMA_MODEL,
+                    url: str = OLLAMA_URL) -> str:
+    """Generate a study guide with a local Ollama model — fully offline.
+
+    Requires Ollama running locally (https://ollama.com) with the model
+    pulled, e.g.:  ollama pull llama3.1:8b
+    """
+    body = json.dumps({
+        "model": model,
+        "stream": False,
+        "messages": [{"role": "user", "content": build_prompt(transcript)}],
+        "options": {"num_ctx": 16384},
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url, data=body, headers={"content-type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=1800) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("error", "")
+        except Exception:
+            pass
+        if "not found" in detail.lower():
+            raise RuntimeError(
+                f"Ollama doesn't have the model '{model}'. "
+                f"Run:  ollama pull {model}"
+            ) from exc
+        raise RuntimeError(f"Ollama error {exc.code}: {detail or exc}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            "Could not reach Ollama at localhost:11434. Is it installed and "
+            "running? Install from ollama.com, then:  ollama pull " + model
+        ) from exc
+
+    guide = (data.get("message") or {}).get("content", "").strip()
+    if not guide:
+        raise RuntimeError("Ollama returned an empty response.")
     return guide

@@ -25,14 +25,27 @@
 <dialog id="settingsDlg" class="settings-dlg">
   <h2>Study-guide settings</h2>
   <p class="settings-note">
-    Add an Anthropic API key to generate study guides with one click
-    (Claude Haiku — a few cents per lecture). No key? Every finished
-    transcript has a <strong>Copy prompt</strong> button: paste it into
-    Claude.ai for a free guide.
+    Pick how study guides are generated. <strong>Claude API</strong> gives the best
+    quality (a few cents per lecture). <strong>Ollama</strong> runs a model on this
+    machine — fully offline and free (install from ollama.com, then
+    <span class="mono">ollama pull llama3.1:8b</span>). No setup at all? Every
+    transcript has a <strong>Copy prompt</strong> button for Claude.ai.
   </p>
-  <label for="apiKeyInput">Anthropic API key</label>
-  <input type="password" id="apiKeyInput" placeholder="sk-ant-..." autocomplete="off">
-  <p class="settings-hint mono" id="keyHint"></p>
+  <label for="backendSel">Guide backend</label>
+  <select id="backendSel" style="width:100%; margin-bottom:0.8rem;">
+    <option value="anthropic">Claude API (online, best quality)</option>
+    <option value="ollama">Ollama (offline, this machine)</option>
+  </select>
+  <div id="anthropicFields">
+    <label for="apiKeyInput">Anthropic API key</label>
+    <input type="password" id="apiKeyInput" placeholder="sk-ant-..." autocomplete="off">
+    <p class="settings-hint mono" id="keyHint"></p>
+  </div>
+  <div id="ollamaFields" hidden>
+    <label for="ollamaModelInput">Ollama model</label>
+    <input type="text" id="ollamaModelInput" placeholder="llama3.1:8b" autocomplete="off">
+    <p class="settings-hint">Any model you’ve pulled works; 8B-class models fit most laptops.</p>
+  </div>
   <div class="settings-actions">
     <button class="btn btn-chalk btn-sm" id="saveSettings" type="button">Save</button>
     <button class="btn btn-ghost btn-sm" id="clearKey" type="button">Remove key</button>
@@ -72,8 +85,43 @@
   </section>
 
   <p class="server-note" id="serverNote" hidden>
-    Can’t reach the server. Start it with <span class="mono">python app.py</span>, then refresh.
+    Can’t reach the server — but you can still use <strong>on-device transcription</strong> below.
   </p>
+
+  <!-- On-device (browser) transcription -->
+  <section class="board device-board" id="deviceBoard" aria-label="Transcribe on this device">
+    <div class="board-inner device-inner">
+      <p class="board-title">On this device <span class="beta">beta</span></p>
+      <p class="board-sub">
+        No server needed: Whisper runs inside this browser. The model downloads once
+        (~40–80&nbsp;MB), then works fully offline. Best for recordings under ~30 minutes.
+      </p>
+      <div class="board-actions">
+        <button class="btn btn-chalk" id="devicePickBtn" type="button">Choose a file</button>
+      </div>
+      <input type="file" id="deviceFileInput" accept="audio/*,video/*" hidden>
+      <div class="device-job" id="deviceJob" hidden>
+        <div class="job-progress" style="margin-top:1rem">
+          <div class="chalkline"><div class="chalkline-fill" id="deviceFill"></div></div>
+          <p class="ticker mono"><span class="ticker-text" id="deviceTicker"></span><span class="caret" aria-hidden="true"></span></p>
+        </div>
+        <div class="job-actions" id="deviceActions" hidden>
+          <button class="btn btn-sm btn-ghost" id="deviceCopy" type="button">Copy text</button>
+          <button class="btn btn-sm btn-ghost" id="devicePrompt" type="button">Copy prompt</button>
+          <button class="btn btn-sm btn-ghost" id="deviceDownload" type="button">Download transcript</button>
+        </div>
+        <pre class="job-text mono" id="deviceText" hidden></pre>
+      </div>
+    </div>
+    <div class="chalk-tray">
+      <label for="deviceModelSel">Model</label>
+      <select id="deviceModelSel">
+        <option value="tiny">tiny — fastest on phones</option>
+        <option value="base" selected>base — better accuracy</option>
+      </select>
+      <span class="tray-hint">Runs on this device’s chip — nothing is uploaded.</span>
+    </div>
+  </section>
 
   <!-- Jobs -->
   <section aria-label="Transcriptions">
@@ -125,5 +173,6 @@
 </template>
 
 <script src="app.js"></script>
+<script src="device.js"></script>
 </body>
 </html>

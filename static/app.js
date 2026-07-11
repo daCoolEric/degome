@@ -24,23 +24,39 @@ let hasApiKey = false;
 const settingsDlg = $("#settingsDlg");
 const apiKeyInput = $("#apiKeyInput");
 const keyHint = $("#keyHint");
+const backendSel = $("#backendSel");
+const ollamaModelInput = $("#ollamaModelInput");
+
+function syncBackendFields() {
+  const ollama = backendSel.value === "ollama";
+  $("#anthropicFields").hidden = ollama;
+  $("#ollamaFields").hidden = !ollama;
+}
+backendSel.addEventListener("change", syncBackendFields);
 
 async function loadSettings() {
   try {
     const s = await (await fetch("/api/settings")).json();
     hasApiKey = s.has_api_key;
-    keyHint.textContent = s.has_api_key ? "Current key: " + s.key_hint : "No key saved \u2014 the free Copy-prompt path still works.";
+    keyHint.textContent = s.has_api_key ? "Current key: " + s.key_hint : "No key saved \u2014 Ollama and Copy-prompt paths still work.";
+    backendSel.value = s.guide_backend || "anthropic";
+    ollamaModelInput.value = s.ollama_model || "llama3.1:8b";
+    syncBackendFields();
   } catch {}
 }
 $("#settingsBtn").addEventListener("click", () => { loadSettings(); settingsDlg.showModal(); });
 $("#closeSettings").addEventListener("click", () => settingsDlg.close());
 $("#saveSettings").addEventListener("click", async () => {
+  const payload = {
+    guide_backend: backendSel.value,
+    ollama_model: ollamaModelInput.value.trim(),
+  };
   const key = apiKeyInput.value.trim();
-  if (!key) { settingsDlg.close(); return; }
+  if (key) payload.anthropic_api_key = key;
   await fetch("/api/settings", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ anthropic_api_key: key }),
+    body: JSON.stringify(payload),
   });
   apiKeyInput.value = "";
   await loadSettings();

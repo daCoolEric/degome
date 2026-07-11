@@ -94,7 +94,7 @@ def transcribe(audio_path: Path, model_size: str, duration: float, on_progress):
     try:
         for chunk in chunks:
             chunk_dur = media_duration(chunk)
-            segments, info = model.transcribe(str(chunk), beam_size=5, vad_filter=True)
+            segments, info = model.transcribe(str(chunk), beam_size=5, vad_filter=True, language="en")
             if language is None:
                 language, lang_prob = info.language, float(info.language_probability)
 

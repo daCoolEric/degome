@@ -379,3 +379,22 @@ main { width: min(760px, 92vw); margin: 0 auto; flex: 1; }
 }
 .guide-body pre code { background: none; padding: 0; }
 .guide-body strong { color: var(--chalk); }
+
+/* ---------- on-device (browser) transcription ---------- */
+.device-board { margin-top: 1.2rem; }
+.device-inner { text-align: left; padding: 1.6rem 1.5rem 1.4rem; }
+.device-inner .board-title { font-size: 1.2rem; }
+.device-inner .board-sub { margin-bottom: 1rem; }
+.device-inner .board-actions { justify-content: flex-start; }
+.beta {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--board-deep);
+  background: var(--ochre);
+  border-radius: 99px;
+  padding: 0.16rem 0.5rem;
+  vertical-align: 3px;
+  margin-left: 0.4rem;
+}
