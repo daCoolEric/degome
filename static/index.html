@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Degome</title>
+<meta name="description" content="Turn any lecture recording — audio or video — into a transcript, processed privately on your own machine.">
+<meta name="theme-color" content="#033940">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">[00:00]</span>
+    <h1>Degome</h1>
+    <button class="btn btn-ghost btn-sm settings-btn" id="settingsBtn" type="button">Settings</button>
+  </div>
+  <p class="tagline"><em>Ɖe gɔme</em> — bring out the meaning. Any lecture, audio or video, becomes a transcript and study guide — processed on this machine, nothing leaves it.</p>
+</header>
+
+<dialog id="settingsDlg" class="settings-dlg">
+  <h2>Study-guide settings</h2>
+  <p class="settings-note">
+    Add an Anthropic API key to generate study guides with one click
+    (Claude Haiku — a few cents per lecture). No key? Every finished
+    transcript has a <strong>Copy prompt</strong> button: paste it into
+    Claude.ai for a free guide.
+  </p>
+  <label for="apiKeyInput">Anthropic API key</label>
+  <input type="password" id="apiKeyInput" placeholder="sk-ant-..." autocomplete="off">
+  <p class="settings-hint mono" id="keyHint"></p>
+  <div class="settings-actions">
+    <button class="btn btn-chalk btn-sm" id="saveSettings" type="button">Save</button>
+    <button class="btn btn-ghost btn-sm" id="clearKey" type="button">Remove key</button>
+    <button class="btn btn-ghost btn-sm" id="closeSettings" type="button">Close</button>
+  </div>
+</dialog>
+
+<main>
+  <!-- The board: drop zone + recorder -->
+  <section class="board" id="dropzone" aria-label="Upload a recording">
+    <div class="board-inner">
+      <p class="board-title">Drop a recording here</p>
+      <p class="board-sub">MP4 · MKV · MOV · WEBM · MP3 · M4A · WAV · OGG · OPUS — up to 2&nbsp;GB</p>
+      <div class="board-actions">
+        <button class="btn btn-chalk" id="pickBtn" type="button">Choose a file</button>
+        <button class="btn btn-ghost" id="recBtn" type="button">
+          <span class="rec-dot" aria-hidden="true"></span>Record with mic
+        </button>
+      </div>
+      <p class="rec-status" id="recStatus" hidden>
+        <span class="rec-dot live" aria-hidden="true"></span>
+        Recording <span class="mono" id="recTimer">00:00</span> — tap “Stop &amp; transcribe” when done
+      </p>
+      <input type="file" id="fileInput" accept="audio/*,video/*" hidden>
+    </div>
+    <div class="chalk-tray">
+      <label for="modelSel">Model</label>
+      <select id="modelSel">
+        <option value="tiny">tiny — fastest, rough</option>
+        <option value="base">base — quick drafts</option>
+        <option value="small" selected>small — good balance</option>
+        <option value="medium">medium — best for technical terms</option>
+        <option value="large-v3">large-v3 — maximum accuracy, slow</option>
+      </select>
+      <span class="tray-hint">First use of a model downloads it once.</span>
+    </div>
+  </section>
+
+  <p class="server-note" id="serverNote" hidden>
+    Can’t reach the server. Start it with <span class="mono">python app.py</span>, then refresh.
+  </p>
+
+  <!-- Jobs -->
+  <section aria-label="Transcriptions">
+    <h2 class="section-label" id="jobsLabel" hidden>Transcriptions</h2>
+    <div id="jobs"></div>
+  </section>
+</main>
+
+<footer class="foot">
+  <p>Degome — <em>Nunya, adidoe; asi metunɛ o.</em> Knowledge is a baobab tree; no one embraces it alone.</p>
+  <p>Runs locally with faster-whisper + ffmpeg · Ayric Technologies</p>
+</footer>
+
+<template id="jobTpl">
+  <article class="job">
+    <div class="job-head">
+      <div class="job-title">
+        <span class="job-name"></span>
+        <span class="job-meta mono"></span>
+      </div>
+      <span class="job-badge"></span>
+    </div>
+    <div class="job-progress" hidden>
+      <div class="chalkline"><div class="chalkline-fill"></div></div>
+      <p class="ticker mono"><span class="ticker-text"></span><span class="caret" aria-hidden="true"></span></p>
+    </div>
+    <p class="job-error" hidden></p>
+    <div class="job-actions" hidden>
+      <button class="btn btn-sm btn-chalk act-guide" type="button">Study guide</button>
+      <button class="btn btn-sm btn-ghost act-view" type="button">View transcript</button>
+      <button class="btn btn-sm btn-ghost act-copy" type="button">Copy text</button>
+      <button class="btn btn-sm btn-ghost act-prompt" type="button">Copy prompt</button>
+      <a class="btn btn-sm btn-ghost act-dl-ts" download>Download timestamped</a>
+      <a class="btn btn-sm btn-ghost act-dl-plain" download>Download plain</a>
+      <button class="btn btn-sm btn-ghost act-del" type="button">Delete</button>
+    </div>
+    <p class="guide-status" hidden>
+      <span class="mono guide-status-text"></span>
+    </p>
+    <div class="guide-panel" hidden>
+      <div class="guide-panel-head">
+        <span class="section-label" style="margin:0">Study guide</span>
+        <a class="btn btn-sm btn-ghost act-dl-guide" download>Download .md</a>
+      </div>
+      <div class="guide-body"></div>
+    </div>
+    <pre class="job-text mono" hidden></pre>
+  </article>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>

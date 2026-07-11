@@ -1,0 +1,10 @@
+﻿# runtime data — transcripts, uploads, and the API key live here
+data/
+
+# python
+__pycache__/
+*.pyc
+
+# misc
+server.log
+.DS_Store
