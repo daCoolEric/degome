@@ -94,6 +94,44 @@ def generate(api_key: str, transcript: str, model: str = DEFAULT_MODEL) -> str:
     return guide
 
 
+def generate_groq(transcript: str, model: str = "llama-3.3-70b-versatile") -> str:
+    """Generate a study guide with Groq's hosted Llama — free-tier friendly,
+    used automatically on cloud deployments when GROQ_API_KEY is set."""
+    import os
+
+    body = json.dumps({
+        "model": model,
+        "max_tokens": 8000,
+        "messages": [{"role": "user", "content": build_prompt(transcript)}],
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=body,
+        headers={
+            "content-type": "application/json",
+            "authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '')}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("error", {}).get("message", "")
+        except Exception:
+            detail = str(exc)
+        raise RuntimeError(f"Groq guide error {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Could not reach the Groq API: {exc.reason}") from exc
+
+    guide = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+    if not guide:
+        raise RuntimeError("Groq returned an empty response.")
+    return guide
+
+
 def generate_ollama(transcript: str, model: str = DEFAULT_OLLAMA_MODEL,
                     url: str = OLLAMA_URL) -> str:
     """Generate a study guide with a local Ollama model — fully offline.

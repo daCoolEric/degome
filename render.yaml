@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: degome
+    runtime: docker
+    plan: free            # upgrade to starter for persistent disk + no spin-down
+    healthCheckPath: /api/access
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false        # set in the Render dashboard, never in git
+      - key: ACCESS_CODE
+        sync: false        # the code you share with your class
+      - key: ANTHROPIC_API_KEY
+        sync: false        # optional: premium study guides via Claude

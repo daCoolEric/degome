@@ -16,6 +16,7 @@ transcripts are kept in ./data so they survive a server restart.
 """
 
 import json
+import os
 import queue
 import shutil
 import threading
@@ -57,6 +58,28 @@ MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
 ALLOWED_MODELS = {"tiny", "base", "small", "medium", "large-v3"}
 
 app = FastAPI(title="Degome")
+
+# ---------------------------------------------------------------- access gate
+# On public deployments, set ACCESS_CODE so only people you share the code
+# with can spend the server's API quota. Locally (no env var) it is off.
+ACCESS_CODE = os.environ.get("ACCESS_CODE", "")
+
+
+@app.middleware("http")
+async def access_gate(request, call_next):
+    if ACCESS_CODE and request.url.path.startswith("/api/"):
+        exempt = (request.url.path == "/api/access"
+                  or request.url.path.endswith("/download"))
+        if not exempt and request.headers.get("x-access-code", "") != ACCESS_CODE:
+            from fastapi.responses import JSONResponse as _JR
+            return _JR({"detail": "Access code required."}, status_code=401)
+    return await call_next(request)
+
+
+@app.get("/api/access")
+def access_info():
+    return {"required": bool(ACCESS_CODE)}
+
 
 # ---------------------------------------------------------------- job store
 _jobs: dict[str, dict] = {}
@@ -156,23 +179,29 @@ _load_jobs()
 
 
 def _generate_guide(jid: str) -> None:
-    """Runs in a thread: generate a study guide for a finished job."""
+    """Runs in a thread: generate a study guide for a finished job.
+
+    Backend priority: Ollama if selected -> Anthropic (env key or Settings
+    key) -> Groq Llama (cloud deployments with GROQ_API_KEY)."""
     plain_path = RESULTS / f"{jid}_plain.txt"
     try:
         cfg = _load_config()
         transcript = plain_path.read_text(encoding="utf-8")
         backend = cfg.get("guide_backend", "anthropic")
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or cfg.get("anthropic_api_key", "")
+
         if backend == "ollama":
             md = guide_mod.generate_ollama(
                 transcript, cfg.get("ollama_model", guide_mod.DEFAULT_OLLAMA_MODEL))
-        else:
-            key = cfg.get("anthropic_api_key", "")
-            if not key:
-                raise RuntimeError(
-                    "No API key configured. Add one in Settings, switch the guide "
-                    "backend to Ollama (offline), or use Copy prompt.")
-            md = guide_mod.generate(key, transcript,
+        elif anthropic_key:
+            md = guide_mod.generate(anthropic_key, transcript,
                                     cfg.get("guide_model", guide_mod.DEFAULT_MODEL))
+        elif os.environ.get("GROQ_API_KEY"):
+            md = guide_mod.generate_groq(transcript)
+        else:
+            raise RuntimeError(
+                "No guide backend available. Add an API key in Settings, switch "
+                "to Ollama (offline), or use Copy prompt.")
         (RESULTS / f"{jid}_guide.md").write_text(md, encoding="utf-8")
         _update(jid, guide_status="done", guide_error=None)
     except Exception as exc:  # noqa: BLE001
@@ -292,6 +321,7 @@ def get_settings():
     cfg = _load_config()
     key = cfg.get("anthropic_api_key", "")
     return {
+        "cloud_mode": transcriber.cloud_mode(),
         "has_api_key": bool(key),
         "key_hint": (key[:10] + "\u2026" + key[-4:]) if len(key) > 18 else ("set" if key else ""),
         "guide_model": cfg.get("guide_model", guide_mod.DEFAULT_MODEL),
@@ -326,11 +356,16 @@ def start_guide(jid: str):
     if job.get("guide_status") == "generating":
         raise HTTPException(409, "A guide is already being generated.")
     cfg = _load_config()
-    if cfg.get("guide_backend", "anthropic") == "anthropic" and not cfg.get("anthropic_api_key"):
+    has_backend = (
+        cfg.get("guide_backend") == "ollama"
+        or os.environ.get("ANTHROPIC_API_KEY") or cfg.get("anthropic_api_key")
+        or os.environ.get("GROQ_API_KEY")
+    )
+    if not has_backend:
         raise HTTPException(
             400,
-            "No API key configured. Add one in Settings, switch the guide backend "
-            "to Ollama (offline), or use 'Copy prompt' with Claude.ai.",
+            "No guide backend available. Add an API key in Settings, switch to "
+            "Ollama (offline), or use 'Copy prompt' with Claude.ai.",
         )
     _update(jid, guide_status="generating", guide_error=None)
     threading.Thread(target=_generate_guide, args=(jid,), daemon=True).start()
@@ -372,4 +407,4 @@ app.mount("/", StaticFiles(directory=BASE / "static", html=True), name="static")
 
 if __name__ == "__main__":
     print("Degome running -> http://localhost:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))

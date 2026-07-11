@@ -15,6 +15,45 @@ const jobsLabel = $("#jobsLabel");
 const serverNote = $("#serverNote");
 const jobTpl = $("#jobTpl");
 
+let accessCode = localStorage.getItem("degome_access") || "";
+
+async function ensureAccess() {
+  try {
+    const info = await (await fetch("/api/access")).json();
+    if (!info.required) return;
+    while (true) {
+      const probe = await fetch("/api/jobs", { headers: apiHeaders() });
+      if (probe.status !== 401) return;
+      const code = prompt("Enter the Degome access code:");
+      if (code == null) return;
+      accessCode = code.trim();
+      localStorage.setItem("degome_access", accessCode);
+    }
+  } catch {}
+}
+
+function apiHeaders(extra) {
+  const h = extra || {};
+  if (accessCode) h["x-access-code"] = accessCode;
+  return h;
+}
+
+async function apiFetch(url, opts) {
+  opts = opts || {};
+  opts.headers = apiHeaders(opts.headers);
+  const res = await fetch(url, opts);
+  if (res.status === 401) {
+    const code = prompt("Access code required:");
+    if (code != null) {
+      accessCode = code.trim();
+      localStorage.setItem("degome_access", accessCode);
+      opts.headers = apiHeaders({});
+      return fetch(url, opts);
+    }
+  }
+  return res;
+}
+
 const cards = new Map(); // job id -> card element
 let pollTimer = null;
 let hasApiKey = false;
@@ -36,7 +75,7 @@ backendSel.addEventListener("change", syncBackendFields);
 
 async function loadSettings() {
   try {
-    const s = await (await fetch("/api/settings")).json();
+    const s = await (await apiFetch("/api/settings")).json();
     hasApiKey = s.has_api_key;
     keyHint.textContent = s.has_api_key ? "Current key: " + s.key_hint : "No key saved \u2014 Ollama and Copy-prompt paths still work.";
     backendSel.value = s.guide_backend || "anthropic";
@@ -53,7 +92,7 @@ $("#saveSettings").addEventListener("click", async () => {
   };
   const key = apiKeyInput.value.trim();
   if (key) payload.anthropic_api_key = key;
-  await fetch("/api/settings", {
+  await apiFetch("/api/settings", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -63,7 +102,7 @@ $("#saveSettings").addEventListener("click", async () => {
   settingsDlg.close();
 });
 $("#clearKey").addEventListener("click", async () => {
-  await fetch("/api/settings", {
+  await apiFetch("/api/settings", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ anthropic_api_key: "" }),
@@ -149,6 +188,7 @@ function uploadFile(file) {
     serverNote.hidden = false;
   };
   xhr.open("POST", "/api/transcribe");
+  if (accessCode) xhr.setRequestHeader("x-access-code", accessCode);
   xhr.send(form);
 }
 
@@ -243,11 +283,15 @@ recBtn.addEventListener("click", () => {
 async function refreshJobs() {
   let jobs;
   try {
-    const res = await fetch("/api/jobs");
+    const res = await apiFetch("/api/jobs");
     jobs = await res.json();
     serverNote.hidden = true;
+    const db = document.querySelector("#deviceBoard");
+    if (db) db.hidden = true;
   } catch {
     serverNote.hidden = false;
+    const db = document.querySelector("#deviceBoard");
+    if (db) db.hidden = false;
     return [];
   }
   jobsLabel.hidden = jobs.length === 0;
@@ -332,7 +376,7 @@ function renderCard(card, job) {
 async function showGuide(card, id) {
   const panel = $(".guide-panel", card);
   try {
-    const res = await fetch("/api/jobs/" + id + "/guide");
+    const res = await apiFetch("/api/jobs/" + id + "/guide");
     if (!res.ok) throw new Error();
     const { markdown } = await res.json();
     $(".guide-body", card).innerHTML = renderMarkdown(markdown);
@@ -347,7 +391,7 @@ function wireCard(card, id) {
   $(".act-guide", card).addEventListener("click", async () => {
     const panel = $(".guide-panel", card);
     // already generated -> toggle the panel
-    const probe = await fetch("/api/jobs/" + id + "/guide");
+    const probe = await apiFetch("/api/jobs/" + id + "/guide");
     if (probe.ok) {
       if (!panel.hidden) { panel.hidden = true; return; }
       const { markdown } = await probe.json();
@@ -357,7 +401,7 @@ function wireCard(card, id) {
       return;
     }
     // not generated yet -> start it (or steer to the free path)
-    const res = await fetch("/api/jobs/" + id + "/guide", { method: "POST" });
+    const res = await apiFetch("/api/jobs/" + id + "/guide", { method: "POST" });
     if (res.ok) {
       card.dataset.awaitGuide = "1";
       startPolling();
@@ -374,7 +418,7 @@ function wireCard(card, id) {
   });
 
   $(".act-prompt", card).addEventListener("click", async (e) => {
-    const res = await fetch("/api/jobs/" + id + "/guide_prompt");
+    const res = await apiFetch("/api/jobs/" + id + "/guide_prompt");
     if (!res.ok) { alert("Transcript isn't ready yet."); return; }
     const { prompt } = await res.json();
     await navigator.clipboard.writeText(prompt);
@@ -388,7 +432,7 @@ function wireCard(card, id) {
     const pre = $(".job-text", card);
     if (!pre.hidden) { pre.hidden = true; $(".act-view", card).textContent = "View transcript"; return; }
     if (!pre.textContent) {
-      const res = await fetch("/api/jobs/" + id + "/text?kind=timestamped");
+      const res = await apiFetch("/api/jobs/" + id + "/text?kind=timestamped");
       pre.textContent = (await res.json()).text;
     }
     pre.hidden = false;
@@ -396,7 +440,7 @@ function wireCard(card, id) {
   });
 
   $(".act-copy", card).addEventListener("click", async (e) => {
-    const res = await fetch("/api/jobs/" + id + "/text?kind=plain");
+    const res = await apiFetch("/api/jobs/" + id + "/text?kind=plain");
     await navigator.clipboard.writeText((await res.json()).text);
     const btn = e.currentTarget;
     const old = btn.textContent;
@@ -406,7 +450,7 @@ function wireCard(card, id) {
 
   $(".act-del", card).addEventListener("click", async () => {
     if (!confirm("Delete this transcription?")) return;
-    await fetch("/api/jobs/" + id, { method: "DELETE" });
+    await apiFetch("/api/jobs/" + id, { method: "DELETE" });
     card.remove();
     cards.delete(id);
     if (!cards.size) jobsLabel.hidden = true;
@@ -432,7 +476,7 @@ function startPolling() {
 }
 
 /* ---------------- boot ---------------- */
-loadSettings();
+ensureAccess().then(() => { loadSettings(); refreshJobs(); });
 refreshJobs().then((jobs) => {
   if (jobs.some((j) =>
     (j.status !== "done" && j.status !== "error") || j.guide_status === "generating")) startPolling();

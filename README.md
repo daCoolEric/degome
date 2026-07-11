@@ -105,3 +105,28 @@ data/             uploads (temporary) and finished transcripts
 All transcription happens in `transcriber.transcribe()`. To move to a hosted
 Whisper API (e.g. for a deployed product), replace that one function with an
 API call — the server, queue, and UI don't change.
+
+
+## Deploying to the cloud (Render + Groq)
+
+The same codebase runs in the cloud with **zero API cost** on free tiers:
+transcription and study guides via Groq (2 h of audio per clock-hour,
+2,000 requests/day free), hosted on Render.
+
+1. Get a free key at console.groq.com (no card needed).
+2. Push this repo to GitHub (the repo includes `Dockerfile` + `render.yaml`).
+3. On render.com: **New → Blueprint** → pick the repo. Render reads
+   `render.yaml` automatically.
+4. Set the environment variables it asks for:
+   - `GROQ_API_KEY` — your Groq key (enables cloud transcription + Llama guides)
+   - `ACCESS_CODE` — any phrase; share it with your class. Everyone enters it
+     once; strangers can't spend your quota.
+   - `ANTHROPIC_API_KEY` — optional, upgrades guides to Claude.
+5. Deploy. The service transcribes via Groq (seconds per lecture, any length —
+   audio is chunked to fit Groq's 25 MB/request limit automatically).
+
+Notes: keys live only in Render's environment — never in git, never in the
+browser. The free plan sleeps after 15 idle minutes (first visit wakes it)
+and has no persistent disk (transcripts are lost on redeploy); the $7
+starter plan fixes both. Locally, without `GROQ_API_KEY`, Degome keeps
+using faster-whisper on your machine exactly as before.
