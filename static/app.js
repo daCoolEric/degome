@@ -476,7 +476,14 @@ function startPolling() {
 }
 
 /* ---------------- boot ---------------- */
-ensureAccess().then(() => { loadSettings(); refreshJobs(); });
+async function bootRefresh(attempt = 0) {
+  await refreshJobs();
+  // server not answering yet (cold start on free hosting) -> retry ~48s
+  if (!serverNote.hidden && attempt < 12) {
+    setTimeout(() => bootRefresh(attempt + 1), 4000);
+  }
+}
+ensureAccess().then(() => { loadSettings(); bootRefresh(); });
 refreshJobs().then((jobs) => {
   if (jobs.some((j) =>
     (j.status !== "done" && j.status !== "error") || j.guide_status === "generating")) startPolling();
