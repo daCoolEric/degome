@@ -398,3 +398,22 @@ main { width: min(760px, 92vw); margin: 0 auto; flex: 1; }
   vertical-align: 3px;
   margin-left: 0.4rem;
 }
+
+/* ---------- guide tables ---------- */
+.guide-body table {
+  border-collapse: collapse;
+  margin: 0.7rem 0 1rem;
+  width: 100%;
+  font-size: 0.85rem;
+}
+.guide-body th, .guide-body td {
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+.guide-body th {
+  background: rgba(224, 176, 79, 0.14);
+  color: var(--ochre);
+  font-weight: 600;
+}
+.guide-body tr:nth-child(even) td { background: rgba(247, 243, 232, 0.03); }

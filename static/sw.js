@@ -1,7 +1,7 @@
 /* Degome service worker — caches the app shell and, at runtime, the
    transformers.js library so on-device transcription works offline
    after first use. Model files are cached by transformers.js itself. */
-const CACHE = "degome-shell-v12";
+const CACHE = "degome-shell-v13";
 const CDN_CACHE = "degome-cdn-v1";
 const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/device.js",
   "/browser-asr.js", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];

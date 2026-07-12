@@ -124,9 +124,32 @@ function inlineMd(s) {
 function renderMarkdown(md) {
   const lines = escapeHtml(md).split(/\r?\n/);
   const out = [];
-  let inList = null, inCode = false;
+  let inList = null, inCode = false, tableRows = null;
   const closeList = () => { if (inList) { out.push("</" + inList + ">"); inList = null; } };
+  const flushTable = () => {
+    if (!tableRows || !tableRows.length) { tableRows = null; return; }
+    const cells = (row) => row.replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+    const isSep = (row) => /^\s*\|?[\s:|-]+\|?\s*$/.test(row) && row.includes("-");
+    let header = null, body = tableRows;
+    if (tableRows.length >= 2 && isSep(tableRows[1])) {
+      header = cells(tableRows[0]);
+      body = tableRows.slice(2);
+    }
+    let html = "<table>";
+    if (header) html += "<thead><tr>" + header.map((c) => "<th>" + inlineMd(c) + "</th>").join("") + "</tr></thead>";
+    html += "<tbody>" + body.filter((r) => !isSep(r)).map((r) =>
+      "<tr>" + cells(r).map((c) => "<td>" + inlineMd(c) + "</td>").join("") + "</tr>").join("") + "</tbody></table>";
+    out.push(html);
+    tableRows = null;
+  };
   for (const raw of lines) {
+    // table rows: consecutive lines containing pipes
+    if (!inCode && /^\s*\|.*\|\s*$/.test(raw)) {
+      closeList();
+      (tableRows = tableRows || []).push(raw.trim());
+      continue;
+    }
+    if (tableRows) flushTable();
     if (raw.trim().startsWith("```")) {
       if (inCode) { out.push("</code></pre>"); inCode = false; }
       else { closeList(); out.push("<pre><code>"); inCode = true; }
@@ -152,6 +175,7 @@ function renderMarkdown(md) {
       out.push("<p>" + inlineMd(line) + "</p>");
     }
   }
+  if (tableRows) flushTable();
   closeList();
   if (inCode) out.push("</code></pre>");
   return out.join("\n");

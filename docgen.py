@@ -41,6 +41,50 @@ def _add_runs(paragraph, text: str, base_size=11):
             paragraph.add_run(token)
 
 
+def _is_table_row(line: str) -> bool:
+    s = line.strip()
+    return s.startswith("|") and s.endswith("|") and s.count("|") >= 2
+
+
+def _is_separator_row(line: str) -> bool:
+    s = line.strip().strip("|")
+    return bool(s) and all(ch in " :-|" for ch in s) and "-" in s
+
+
+def _cells(line: str):
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def _add_table(doc, rows):
+    """Emit a proper Word table from collected markdown pipe rows."""
+    header = None
+    body = rows
+    if len(rows) >= 2 and _is_separator_row(rows[1]):
+        header = _cells(rows[0])
+        body = [r for r in rows[2:] if not _is_separator_row(r)]
+    else:
+        body = [r for r in rows if not _is_separator_row(r)]
+
+    data = ([header] if header else []) + [_cells(r) for r in body]
+    if not data:
+        return
+    cols = max(len(r) for r in data)
+    table = doc.add_table(rows=len(data), cols=cols)
+    table.style = "Table Grid"
+    for i, row in enumerate(data):
+        for c in range(cols):
+            cell = table.cell(i, c)
+            cell.text = ""
+            p = cell.paragraphs[0]
+            _add_runs(p, row[c] if c < len(row) else "", base_size=10)
+            for run in p.runs:
+                run.font.size = run.font.size or Pt(10)
+                if header and i == 0:
+                    run.bold = True
+                    run.font.color.rgb = TEAL
+    doc.add_paragraph()
+
+
 def guide_to_docx(markdown: str, lecture_name: str) -> bytes:
     doc = Document()
 
@@ -67,8 +111,21 @@ def guide_to_docx(markdown: str, lecture_name: str) -> bytes:
 
     # ---- body ----
     in_code = False
+    table_rows = []
+
+    def flush_table():
+        nonlocal table_rows
+        if table_rows:
+            _add_table(doc, table_rows)
+            table_rows = []
+
     for raw in markdown.splitlines():
         line = raw.rstrip()
+
+        if not in_code and _is_table_row(line):
+            table_rows.append(line)
+            continue
+        flush_table()
 
         if line.strip().startswith("```"):
             in_code = not in_code
@@ -112,6 +169,8 @@ def guide_to_docx(markdown: str, lecture_name: str) -> bytes:
 
         p = doc.add_paragraph()
         _add_runs(p, line)
+
+    flush_table()
 
     # ---- footer line ----
     foot = doc.add_paragraph()
