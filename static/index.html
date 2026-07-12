@@ -58,13 +58,15 @@
   <section class="board" id="dropzone" aria-label="Upload a recording">
     <div class="board-inner">
       <p class="board-title">Drop a recording here</p>
-      <p class="board-sub">MP4 · MKV · MOV · WEBM · MP3 · M4A · WAV · OGG · OPUS — up to 2&nbsp;GB</p>
+      <p class="board-sub">Recordings: MP4 · MKV · MP3 · M4A · WAV … — Materials: PDF · PPT(X) · DOC(X) · XLS(X) · JPG · PNG</p>
       <div class="board-actions">
         <button class="btn btn-chalk" id="pickBtn" type="button">Choose a file</button>
         <button class="btn btn-ghost" id="recBtn" type="button">
           <span class="rec-dot" aria-hidden="true"></span>Record with mic
         </button>
+        <button class="btn btn-ghost" id="slidesOnlyBtn" type="button">Slides / notes only</button>
       </div>
+      <input type="file" id="slidesOnlyInput" accept=".pdf,.pptx,.ppt,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" multiple hidden>
       <p class="rec-status" id="recStatus" hidden>
         <span class="rec-dot live" aria-hidden="true"></span>
         Recording <span class="mono" id="recTimer">00:00</span> — tap “Stop &amp; transcribe” when done
@@ -154,6 +156,7 @@
       <button class="btn btn-sm btn-ghost act-view" type="button">View transcript</button>
       <button class="btn btn-sm btn-ghost act-copy" type="button">Copy text</button>
       <button class="btn btn-sm btn-ghost act-prompt" type="button">Copy prompt</button>
+      <button class="btn btn-sm btn-ghost act-slides" type="button">Add materials</button>
       <a class="btn btn-sm btn-ghost act-dl-ts" download>Download timestamped</a>
       <a class="btn btn-sm btn-ghost act-dl-plain" download>Download plain</a>
       <button class="btn btn-sm btn-ghost act-del" type="button">Delete</button>
@@ -164,7 +167,8 @@
     <div class="guide-panel" hidden>
       <div class="guide-panel-head">
         <span class="section-label" style="margin:0">Study guide</span>
-        <a class="btn btn-sm btn-ghost act-dl-guide" download>Download .md</a>
+        <a class="btn btn-sm btn-chalk act-dl-guide" download>Download Word</a>
+        <a class="btn btn-sm btn-ghost act-dl-guide-md" download>.md</a>
       </div>
       <div class="guide-body"></div>
     </div>

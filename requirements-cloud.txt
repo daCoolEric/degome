@@ -2,3 +2,9 @@ fastapi
 uvicorn
 python-multipart
 requests
+python-docx
+pypdf
+python-pptx
+openpyxl
+pillow
+pytesseract

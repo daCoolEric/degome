@@ -17,49 +17,62 @@ DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 OLLAMA_URL = "http://localhost:11434/api/chat"
 DEFAULT_OLLAMA_MODEL = "llama3.1:8b"
 
+PROMPT_RULES = """Rules:
+- If a TRANSCRIPT is present, it is auto-generated: infer garbled technical terms from context (note corrections in brackets the first time). When SLIDES are also present, treat the slides as authoritative for terminology, spellings, formulas, and section structure — the transcript is authoritative for the lecturer's explanations, examples, and emphasis.
+- If only SLIDES are present, build the guide from the slide content; keep explanations faithful to what the slides actually say.
+- Ignore greetings, small talk, and connection issues.
+- If a section has nothing, write "None mentioned." rather than inventing content.
+- Write for a student revising for an exam: precise, complete, no filler.
+"""
+
 PROMPT_TEMPLATE = """You are preparing exam-focused study notes for a university lecture.
 
-From the lecture transcript below, produce a well-structured markdown study guide with these sections:
+From the material below, produce a well-structured markdown study guide with these sections:
 
 ## Session summary
 Five bullets capturing what this session covered.
 
 ## Key concepts
-Each concept the lecturer taught, with a 2-4 sentence plain-language explanation. Preserve the lecturer's own examples and analogies where they help.
+Each concept taught, with a 2-4 sentence plain-language explanation. Preserve the lecturer's own examples and analogies where they help.
 
 ## Formulas, definitions & worked examples
-Every formula, formal definition, or worked example mentioned - reproduced fully and verified for correctness. If the lecturer worked an exercise, show the complete solution step by step.
+Every formula, formal definition, or worked example mentioned - reproduced fully and verified for correctness. If an exercise was worked, show the complete solution step by step.
 
 ## Likely exam material
-Questions the lecturer asked the class, points they repeated or emphasized, and anything they hinted would appear in assessments.
+Questions asked in class, points repeated or emphasized, and anything hinted to appear in assessments.
 
 ## Announcements & action items
 Assignments, deadlines, readings, or administrative announcements mentioned.
 
-Rules:
-- The transcript is auto-generated: if a technical term is garbled, infer the correct term from context and use it (note the correction in brackets the first time).
-- Ignore greetings, small talk, and connection issues.
-- If a section has nothing, write "None mentioned." rather than inventing content.
-- Write for a student revising for an exam: precise, complete, no filler.
-
-TRANSCRIPT:
-{transcript}
+{rules}
+{material}
 """
 
 
-def build_prompt(transcript: str) -> str:
-    return PROMPT_TEMPLATE.format(transcript=transcript.strip())
+def build_prompt(transcript: str = "", slides: str = "") -> str:
+    parts = []
+    if slides.strip():
+        parts.append("SLIDES (authoritative for terminology, formulas, structure):\n"
+                     + slides.strip())
+    if transcript.strip():
+        parts.append("TRANSCRIPT (the lecturer's spoken explanations and examples):\n"
+                     + transcript.strip())
+    if not parts:
+        raise RuntimeError("Nothing to build a guide from.")
+    return PROMPT_TEMPLATE.format(rules=PROMPT_RULES, material="\n\n".join(parts))
 
 
-def generate(api_key: str, transcript: str, model: str = DEFAULT_MODEL) -> str:
+def generate(api_key: str, transcript: str, model: str = DEFAULT_MODEL,
+             prebuilt: bool = False) -> str:
     """Call the Anthropic API and return the study guide markdown.
 
     Raises RuntimeError with a human-readable message on any failure.
     """
+    content = transcript if prebuilt else build_prompt(transcript)
     body = json.dumps({
         "model": model,
         "max_tokens": 8000,
-        "messages": [{"role": "user", "content": build_prompt(transcript)}],
+        "messages": [{"role": "user", "content": content}],
     }).encode("utf-8")
 
     req = urllib.request.Request(
@@ -94,7 +107,8 @@ def generate(api_key: str, transcript: str, model: str = DEFAULT_MODEL) -> str:
     return guide
 
 
-def generate_groq(transcript: str, model: str = "llama-3.3-70b-versatile") -> str:
+def generate_groq(transcript: str, model: str = "llama-3.3-70b-versatile",
+                  prebuilt: bool = False) -> str:
     """Generate a study guide with Groq's hosted Llama — free-tier friendly,
     used automatically on cloud deployments when GROQ_API_KEY is set."""
     import os
@@ -102,7 +116,8 @@ def generate_groq(transcript: str, model: str = "llama-3.3-70b-versatile") -> st
     body = json.dumps({
         "model": model,
         "max_tokens": 8000,
-        "messages": [{"role": "user", "content": build_prompt(transcript)}],
+        "messages": [{"role": "user",
+                      "content": transcript if prebuilt else build_prompt(transcript)}],
     }).encode("utf-8")
 
     req = urllib.request.Request(
@@ -133,7 +148,7 @@ def generate_groq(transcript: str, model: str = "llama-3.3-70b-versatile") -> st
 
 
 def generate_ollama(transcript: str, model: str = DEFAULT_OLLAMA_MODEL,
-                    url: str = OLLAMA_URL) -> str:
+                    url: str = OLLAMA_URL, prebuilt: bool = False) -> str:
     """Generate a study guide with a local Ollama model — fully offline.
 
     Requires Ollama running locally (https://ollama.com) with the model
@@ -142,7 +157,8 @@ def generate_ollama(transcript: str, model: str = DEFAULT_OLLAMA_MODEL,
     body = json.dumps({
         "model": model,
         "stream": False,
-        "messages": [{"role": "user", "content": build_prompt(transcript)}],
+        "messages": [{"role": "user",
+                      "content": transcript if prebuilt else build_prompt(transcript)}],
         "options": {"num_ctx": 16384},
     }).encode("utf-8")
 

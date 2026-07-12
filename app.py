@@ -30,6 +30,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import guide as guide_mod
+import slides as slides_mod
 import transcriber
 
 BASE = Path(__file__).parent
@@ -110,6 +111,9 @@ def _load_jobs() -> None:
             job["guide_error"] = "Server was stopped while generating. Try again."
         job.setdefault("guide_status", "none")
         job.setdefault("guide_error", None)
+        job.setdefault("has_transcript", True)
+        job.setdefault("has_slides", False)
+        job.setdefault("slides_name", None)
         _jobs[jid] = job
 
 
@@ -186,18 +190,22 @@ def _generate_guide(jid: str) -> None:
     plain_path = RESULTS / f"{jid}_plain.txt"
     try:
         cfg = _load_config()
-        transcript = plain_path.read_text(encoding="utf-8")
+        transcript = plain_path.read_text(encoding="utf-8") if plain_path.exists() else ""
+        slides_path = RESULTS / f"{jid}_slides.txt"
+        slides_text = slides_path.read_text(encoding="utf-8") if slides_path.exists() else ""
         backend = cfg.get("guide_backend", "anthropic")
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or cfg.get("anthropic_api_key", "")
 
         if backend == "ollama":
             md = guide_mod.generate_ollama(
-                transcript, cfg.get("ollama_model", guide_mod.DEFAULT_OLLAMA_MODEL))
+                guide_mod.build_prompt(transcript, slides_text),
+                cfg.get("ollama_model", guide_mod.DEFAULT_OLLAMA_MODEL), prebuilt=True)
         elif anthropic_key:
-            md = guide_mod.generate(anthropic_key, transcript,
-                                    cfg.get("guide_model", guide_mod.DEFAULT_MODEL))
+            md = guide_mod.generate(anthropic_key,
+                                    guide_mod.build_prompt(transcript, slides_text),
+                                    cfg.get("guide_model", guide_mod.DEFAULT_MODEL), prebuilt=True)
         elif os.environ.get("GROQ_API_KEY"):
-            md = guide_mod.generate_groq(transcript)
+            md = guide_mod.generate_groq(guide_mod.build_prompt(transcript, slides_text), prebuilt=True)
         else:
             raise RuntimeError(
                 "No guide backend available. Add an API key in Settings, switch "
@@ -250,6 +258,9 @@ async def create_job(file: UploadFile = File(...), model: str = Form("small")):
             "chars": None,
             "guide_status": "none",
             "guide_error": None,
+            "has_transcript": True,
+            "has_slides": False,
+            "slides_name": None,
             "created": time.time(),
             "upload_path": str(dest),
         }
@@ -311,6 +322,8 @@ def delete_job(jid: str):
     for kind in ("plain", "timestamped"):
         (RESULTS / f"{jid}_{kind}.txt").unlink(missing_ok=True)
     (RESULTS / f"{jid}_guide.md").unlink(missing_ok=True)
+    (RESULTS / f"{jid}_guide.docx").unlink(missing_ok=True)
+    (RESULTS / f"{jid}_slides.txt").unlink(missing_ok=True)
     Path(job.get("upload_path", "/nonexistent")).unlink(missing_ok=True)
     _save_jobs()
     return {"deleted": jid}
@@ -353,6 +366,8 @@ def start_guide(jid: str):
         raise HTTPException(404, "No such job.")
     if job["status"] != "done":
         raise HTTPException(409, "Transcription isn't finished yet.")
+    if not (RESULTS / f"{jid}_plain.txt").exists() and not (RESULTS / f"{jid}_slides.txt").exists():
+        raise HTTPException(409, "No transcript or slides to build a guide from.")
     if job.get("guide_status") == "generating":
         raise HTTPException(409, "A guide is already being generated.")
     cfg = _load_config()
@@ -381,24 +396,125 @@ def get_guide(jid: str):
 
 
 @app.get("/api/jobs/{jid}/guide/download")
-def download_guide(jid: str):
+def download_guide(jid: str, fmt: str = "docx"):
     path = RESULTS / f"{jid}_guide.md"
     if not path.exists():
         raise HTTPException(404, "No study guide yet.")
     with _jobs_lock:
         job = _jobs.get(jid, {})
     stem = Path(job.get("filename", jid)).stem
-    return FileResponse(path, media_type="text/markdown",
-                        filename=f"{stem}_study_guide.md")
+
+    if fmt == "md":
+        return FileResponse(path, media_type="text/markdown",
+                            filename=f"{stem}_study_guide.md")
+    if fmt != "docx":
+        raise HTTPException(400, "fmt must be 'docx' or 'md'.")
+
+    docx_path = RESULTS / f"{jid}_guide.docx"
+    md_text = path.read_text(encoding="utf-8")
+    # regenerate if missing or stale relative to the markdown
+    if not docx_path.exists() or docx_path.stat().st_mtime < path.stat().st_mtime:
+        import docgen
+        docx_path.write_bytes(docgen.guide_to_docx(md_text, job.get("filename", "Lecture")))
+    return FileResponse(
+        docx_path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"{stem}_study_guide.docx")
 
 
 @app.get("/api/jobs/{jid}/guide_prompt")
 def guide_prompt(jid: str):
     """Full prompt + transcript, for pasting into Claude.ai (free path)."""
     plain = RESULTS / f"{jid}_plain.txt"
-    if not plain.exists():
-        raise HTTPException(404, "Transcript not ready.")
-    return JSONResponse({"prompt": guide_mod.build_prompt(plain.read_text(encoding="utf-8"))})
+    sl = RESULTS / f"{jid}_slides.txt"
+    transcript = plain.read_text(encoding="utf-8") if plain.exists() else ""
+    slides_text = sl.read_text(encoding="utf-8") if sl.exists() else ""
+    if not transcript and not slides_text:
+        raise HTTPException(404, "Nothing ready yet.")
+    return JSONResponse({"prompt": guide_mod.build_prompt(transcript, slides_text)})
+
+
+
+
+MAX_SLIDES_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+async def _save_slides_upload(files: list[UploadFile], jid: str) -> str:
+    """Extract text from one or more material files; total 50 MB cap."""
+    sections, names, total = [], [], 0
+    for file in files:
+        suffix = Path(file.filename or "slides").suffix.lower() or ".pdf"
+        if suffix not in slides_mod.SUPPORTED:
+            raise HTTPException(
+                422, f"'{file.filename}': unsupported type. Use PDF, PPTX/PPT, "
+                     "DOCX/DOC, XLSX/XLS, or JPG/PNG.")
+        tmp = UPLOADS / f"{jid}_slides_{len(names)}{suffix}"
+        size = 0
+        with tmp.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                total += len(chunk)
+                if total > MAX_SLIDES_BYTES:
+                    out.close()
+                    tmp.unlink(missing_ok=True)
+                    raise HTTPException(413, "Materials exceed the 50 MB total limit.")
+                out.write(chunk)
+        if size == 0:
+            tmp.unlink(missing_ok=True)
+            continue
+        try:
+            text = slides_mod.extract_text(tmp)
+        except RuntimeError as exc:
+            raise HTTPException(422, f"'{file.filename}': {exc}")
+        finally:
+            tmp.unlink(missing_ok=True)
+        name = file.filename or f"slides{suffix}"
+        names.append(name)
+        sections.append(f"=== {name} ===\n{text}")
+    if not sections:
+        raise HTTPException(400, "No readable files were uploaded.")
+    dest = RESULTS / f"{jid}_slides.txt"
+    combined = "\n\n".join(sections)
+    if dest.exists():  # accumulate across multiple uploads to the same job
+        combined = dest.read_text(encoding="utf-8") + "\n\n" + combined
+    dest.write_text(combined[:slides_mod.MAX_CHARS], encoding="utf-8")
+    return ", ".join(names) if len(names) <= 2 else f"{names[0]} +{len(names)-1} more"
+
+
+@app.post("/api/jobs/{jid}/slides")
+async def attach_slides(jid: str, files: list[UploadFile] = File(...)):
+    with _jobs_lock:
+        job = _jobs.get(jid)
+    if not job:
+        raise HTTPException(404, "No such job.")
+    name = await _save_slides_upload(files, jid)
+    # slides change the guide inputs -> invalidate any existing guide
+    (RESULTS / f"{jid}_guide.md").unlink(missing_ok=True)
+    (RESULTS / f"{jid}_guide.docx").unlink(missing_ok=True)
+    prev = job.get("slides_name")
+    name = f"{prev}, {name}" if prev else name
+    _update(jid, has_slides=True, slides_name=name,
+            guide_status="none", guide_error=None)
+    _save_jobs()
+    return {"attached": jid, "slides_name": name}
+
+
+@app.post("/api/slides")
+async def slides_only_job(files: list[UploadFile] = File(...)):
+    """Create a job from materials alone — no recording needed."""
+    jid = uuid.uuid4().hex[:12]
+    name = await _save_slides_upload(files, jid)
+    with _jobs_lock:
+        _jobs[jid] = {
+            "id": jid, "filename": name, "model": "-",
+            "status": "done", "progress": 1.0, "latest": "", "error": None,
+            "language": None, "duration": 0.0, "seconds_taken": None,
+            "chars": None, "guide_status": "none", "guide_error": None,
+            "has_transcript": False, "has_slides": True, "slides_name": name,
+            "created": time.time(), "upload_path": "",
+        }
+    _save_jobs()
+    return {"job_id": jid}
 
 
 # static PWA — mounted last so /api keeps priority

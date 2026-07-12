@@ -278,6 +278,37 @@ recBtn.addEventListener("click", () => {
   else startRecording();
 });
 
+
+async function uploadSlides(files, jobId) {
+  const form = new FormData();
+  for (const f of files) form.append("files", f, f.name);
+  const url = jobId ? "/api/jobs/" + jobId + "/slides" : "/api/slides";
+  const res = await apiFetch(url, { method: "POST", body: form });
+  if (!res.ok) {
+    let msg = "Upload failed (" + res.status + ").";
+    try {
+      const d = (await res.json()).detail;
+      if (typeof d === "string") msg = d;
+      else if (Array.isArray(d)) msg = "The app shell is outdated \u2014 hard-refresh the page (Ctrl+Shift+R) and try again.";
+    } catch {}
+    alert(msg);
+    return false;
+  }
+  await refreshJobs();
+  return true;
+}
+
+const slidesOnlyBtn = $("#slidesOnlyBtn");
+const slidesOnlyInput = $("#slidesOnlyInput");
+slidesOnlyBtn.addEventListener("click", () => slidesOnlyInput.click());
+slidesOnlyInput.addEventListener("change", async () => {
+  if (slidesOnlyInput.files.length) {
+    jobsLabel.hidden = false;
+    await uploadSlides([...slidesOnlyInput.files], null);
+  }
+  slidesOnlyInput.value = "";
+});
+
 /* ---------------- jobs ---------------- */
 
 async function refreshJobs() {
@@ -317,8 +348,10 @@ async function refreshJobs() {
 function renderCard(card, job) {
   $(".job-name", card).textContent = job.filename;
 
-  const bits = [job.model];
+  const bits = [];
+  if (job.model && job.model !== "-") bits.push(job.model);
   if (job.duration) bits.push(fmtDur(job.duration) + " of audio");
+  if (job.has_slides) bits.push("slides: " + (job.slides_name || "attached"));
   if (job.language) bits.push("lang: " + job.language);
   if (job.status === "done" && job.seconds_taken != null) bits.push("done in " + fmtDur(job.seconds_taken));
   $(".job-meta", card).textContent = bits.join(" \u00b7 ");
@@ -348,6 +381,11 @@ function renderCard(card, job) {
     $(".act-dl-ts", card).href = "/api/jobs/" + job.id + "/download?kind=timestamped";
     $(".act-dl-plain", card).href = "/api/jobs/" + job.id + "/download?kind=plain";
   }
+  const hasT = job.has_transcript !== false;
+  for (const sel of [".act-view", ".act-copy", ".act-dl-ts", ".act-dl-plain"]) {
+    $(sel, card).style.display = hasT ? "" : "none";
+  }
+  $(".act-slides", card).textContent = job.has_slides ? "Add more materials" : "Add materials";
 
   // study guide state
   const gStatus = $(".guide-status", card);
@@ -380,7 +418,8 @@ async function showGuide(card, id) {
     if (!res.ok) throw new Error();
     const { markdown } = await res.json();
     $(".guide-body", card).innerHTML = renderMarkdown(markdown);
-    $(".act-dl-guide", card).href = "/api/jobs/" + id + "/guide/download";
+    $(".act-dl-guide", card).href = "/api/jobs/" + id + "/guide/download?fmt=docx";
+      $(".act-dl-guide-md", card).href = "/api/jobs/" + id + "/guide/download?fmt=md";
     panel.hidden = false;
   } catch {
     /* no guide yet */
@@ -396,7 +435,8 @@ function wireCard(card, id) {
       if (!panel.hidden) { panel.hidden = true; return; }
       const { markdown } = await probe.json();
       $(".guide-body", card).innerHTML = renderMarkdown(markdown);
-      $(".act-dl-guide", card).href = "/api/jobs/" + id + "/guide/download";
+      $(".act-dl-guide", card).href = "/api/jobs/" + id + "/guide/download?fmt=docx";
+      $(".act-dl-guide-md", card).href = "/api/jobs/" + id + "/guide/download?fmt=md";
       panel.hidden = false;
       return;
     }
@@ -415,6 +455,23 @@ function wireCard(card, id) {
         alert(msg);
       }
     }
+  });
+
+  $(".act-slides", card).addEventListener("click", () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".pdf,.pptx,.ppt,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg";
+    input.multiple = true;
+    input.onchange = async () => {
+      if (input.files[0]) {
+        const btn = $(".act-slides", card);
+        btn.textContent = "Extracting…";
+        const ok = await uploadSlides(input.files, id);
+        btn.textContent = "Add materials";
+        if (ok) $(".guide-panel", card).hidden = true; // guide was invalidated
+      }
+    };
+    input.click();
   });
 
   $(".act-prompt", card).addEventListener("click", async (e) => {
