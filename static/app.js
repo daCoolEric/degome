@@ -266,16 +266,20 @@ async function startRecording() {
   }
   const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
     ? "audio/webm;codecs=opus" : "";
-  recorder = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : undefined);
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : undefined);
+  recorder = rec;
   recChunks = [];
-  recorder.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
-  recorder.onstop = () => {
+  rec.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
+  rec.onstop = () => {
     stream.getTracks().forEach((t) => t.stop());
-    const blob = new Blob(recChunks, { type: recorder.mimeType || "audio/webm" });
+    // use the local `rec` — the shared `recorder` variable is already
+    // nulled by stopRecording() when this event fires
+    const blob = new Blob(recChunks, { type: rec.mimeType || "audio/webm" });
+    if (!blob.size) { alert("Nothing was recorded — check that the mic is working."); return; }
     const stamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "-");
     uploadFile(new File([blob], "mic-recording_" + stamp + ".webm", { type: blob.type }));
   };
-  recorder.start(1000);
+  rec.start(1000);
   recStart = Date.now();
   recStatus.hidden = false;
   recBtn.textContent = "Stop & transcribe";
